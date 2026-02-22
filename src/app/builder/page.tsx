@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Undo, Redo } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect, useMemo, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ArrowLeft, Undo, Redo, Loader2 } from 'lucide-react';
 import ProductSelector from '@/components/ProductSelector';
 import DesignCanvas from '@/components/DesignCanvas';
 import QuotePanel from '@/components/QuotePanel';
@@ -16,19 +16,52 @@ import MockupsView from '@/components/MockupsView';
 import { getDefaultProduct, ProductColor, PrintAreaView } from '@/lib/products';
 import { calculateQuote, isHighIntent, determineLeadCategory } from '@/lib/pricing';
 import { DesignElement, DesignState } from '@/types';
+import type { ProductDetail, NormalizedColour, NormalizedImage } from '@/lib/providers/types';
 
 type SidebarTab = 'product' | 'uploads' | 'text' | 'saved' | 'quick' | 'layers';
 
-export default function BuilderPage() {
+function BuilderPageContent() {
   const router = useRouter();
-  const product = getDefaultProduct();
+  const searchParams = useSearchParams();
+  const productParam = searchParams.get('product'); // compound ID like "ascolour:5026"
+
+  const defaultProduct = getDefaultProduct();
   const canvasRef = useRef<{ addImage: (file: File) => void; addText: (text: string, fontFamily: string, color: string) => void } | null>(null);
-  
+
+  // Product state from provider
+  const [productDetail, setProductDetail] = useState<ProductDetail | null>(null);
+  const [productLoading, setProductLoading] = useState(false);
+  const [selectedColourId, setSelectedColourId] = useState<string>('');
+
+  // Whether we have a provider-sourced product loaded
+  const isProviderProduct = !!productParam && !!productDetail;
+
+  // Derived from product detail
+  const colours = productDetail?.colours || [];
+  const images = productDetail?.images || [];
+  const selectedColour = colours.find(c => c.id === selectedColourId) || colours[0];
+
+  // Build product-like colors from normalized data for the color picker
+  const providerColors: ProductColor[] = colours.map(c => ({
+    id: c.id,
+    name: c.name,
+    hex: c.hex,
+    mockupImage: '',
+  }));
+
+  const product = isProviderProduct ? {
+    ...defaultProduct,
+    id: productDetail.id,
+    name: productDetail.name,
+    description: productDetail.description,
+    colors: providerColors.length > 0 ? providerColors : defaultProduct.colors,
+  } : defaultProduct;
+
   // Design state
-  const [selectedColor, setSelectedColor] = useState<ProductColor>(product.colors[0]);
+  const [selectedColor, setSelectedColor] = useState<ProductColor>(defaultProduct.colors[0]);
   const [sizeQuantities, setSizeQuantities] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
-    product.sizes.forEach(size => {
+    defaultProduct.sizes.forEach(size => {
       initial[size.id] = 0;
     });
     return initial;
@@ -37,10 +70,48 @@ export default function BuilderPage() {
   const [activeTab, setActiveTab] = useState<SidebarTab>('uploads');
   const [activeView, setActiveView] = useState<PrintAreaView>('front');
   const [viewMode, setViewMode] = useState<'design' | 'mockups'>('design');
-  
+
+  // Fetch product data when productParam changes
+  useEffect(() => {
+    if (!productParam) {
+      setProductDetail(null);
+      return;
+    }
+
+    let cancelled = false;
+    setProductLoading(true);
+
+    fetch(`/api/products/${encodeURIComponent(productParam)}`)
+      .then(r => r.json())
+      .then((data: ProductDetail) => {
+        if (cancelled) return;
+        setProductDetail(data);
+
+        // Auto-select first colour
+        if (data.colours.length > 0) {
+          const first = data.colours[0];
+          setSelectedColourId(first.id);
+          setSelectedColor({
+            id: first.id,
+            name: first.name,
+            hex: first.hex,
+            mockupImage: '',
+          });
+        }
+      })
+      .catch(err => {
+        console.error('Error loading product:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setProductLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [productParam]);
+
   // Calculate total quantity from all sizes
   const quantity = Object.values(sizeQuantities).reduce((sum, qty) => sum + qty, 0);
-  
+
   // Modal state
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showHighIntentModal, setShowHighIntentModal] = useState(false);
@@ -49,10 +120,10 @@ export default function BuilderPage() {
   const [showProductSelectorModal, setShowProductSelectorModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [emailData, setEmailData] = useState<EmailCaptureData | null>(null);
-  
+
   // Calculate quote
   const quote = calculateQuote(quantity);
-  
+
   // Get current design state
   const getDesignState = useCallback((): DesignState => ({
     productId: product.id,
@@ -72,12 +143,11 @@ export default function BuilderPage() {
   const handleEmailSubmit = async (data: EmailCaptureData) => {
     setIsSubmitting(true);
     setEmailData(data);
-    
+
     try {
       const designState = getDesignState();
       const leadCategory = determineLeadCategory(quantity, quote.totalCost, data.isSellingThese);
-      
-      // Save quote to API
+
       const response = await fetch('/api/quotes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,16 +160,14 @@ export default function BuilderPage() {
           },
         }),
       });
-      
+
       if (!response.ok) throw new Error('Failed to save quote');
-      
+
       setShowEmailModal(false);
-      
-      // Check if high intent - show upsell modal
+
       if (isHighIntent(quantity, quote.totalCost, data.isSellingThese)) {
         setShowHighIntentModal(true);
       } else {
-        // Show success message
         alert('Quote sent! Check your email.');
       }
     } catch (error) {
@@ -112,9 +180,8 @@ export default function BuilderPage() {
 
   const handleHighIntentSubmit = async (data: HighIntentData) => {
     setIsSubmitting(true);
-    
+
     try {
-      // Send webhook to CRM
       await fetch('/api/webhook/high-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,7 +192,7 @@ export default function BuilderPage() {
           quote,
         }),
       });
-      
+
       setShowHighIntentModal(false);
       alert('Thanks! Our team will reach out soon.');
     } catch (error) {
@@ -145,8 +212,58 @@ export default function BuilderPage() {
   };
 
   const handleQuickDesignSelect = (designUrl: string) => {
-    // For MVP, just log - would fetch and add the design
     console.log('Quick design selected:', designUrl);
+  };
+
+  const handleSelectProduct = (compoundId: string) => {
+    router.push(`/builder?product=${encodeURIComponent(compoundId)}`);
+  };
+
+  // Get the product image URL for the current view and colour
+  const getProductImageUrl = (): string | null => {
+    if (!isProviderProduct || !selectedColour) return null;
+
+    // Find image matching current colour and view
+    const match = images.find(
+      img => img.colourId === selectedColour.id && img.view === activeView
+    );
+    if (match) return match.zoomUrl;
+
+    // Fallback to front view for this colour
+    const front = images.find(
+      img => img.colourId === selectedColour.id && img.view === 'front'
+    );
+    return front?.zoomUrl || null;
+  };
+
+  // Get available views for the current product
+  const availableViews = useMemo(() => {
+    if (!isProviderProduct || !productDetail) {
+      return product.printAreas;
+    }
+    const views: { id: PrintAreaView; name: string; x: number; y: number; width: number; height: number }[] = [];
+    for (const v of productDetail.availableViews) {
+      if (v === 'front') views.push({ id: 'front', name: 'Front', x: 150, y: 120, width: 200, height: 250 });
+      if (v === 'back') views.push({ id: 'back', name: 'Back', x: 150, y: 120, width: 200, height: 250 });
+      if (v === 'side') views.push({ id: 'left-sleeve', name: 'Side', x: 50, y: 140, width: 80, height: 100 });
+    }
+    return views.length > 0 ? views : product.printAreas;
+  }, [isProviderProduct, productDetail, product.printAreas]);
+
+  const productImageUrl = getProductImageUrl();
+
+  // Handle colour selection
+  const handleColourSelect = (colourId: string) => {
+    setSelectedColourId(colourId);
+    const colour = colours.find(c => c.id === colourId);
+    if (colour) {
+      setSelectedColor({
+        id: colour.id,
+        name: colour.name,
+        hex: colour.hex,
+        mockupImage: '',
+      });
+    }
   };
 
   return (
@@ -162,8 +279,22 @@ export default function BuilderPage() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-semibold text-gray-900">{product.name}</h1>
-              <button 
+              {productLoading ? (
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Loading product...</span>
+                </div>
+              ) : (
+                <>
+                  <h1 className="text-base font-semibold text-gray-900">{product.name}</h1>
+                  {isProviderProduct && productDetail.provider !== 'static' && (
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                      {productDetail.provider} {productDetail.metadata?.styleCode as string || ''}
+                    </span>
+                  )}
+                </>
+              )}
+              <button
                 onClick={() => setShowProductSelectorModal(true)}
                 className="text-blue-600 hover:text-blue-700 text-sm font-medium"
               >
@@ -181,21 +312,21 @@ export default function BuilderPage() {
               </button>
             </div>
             <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
-              <button 
+              <button
                 onClick={() => setViewMode('design')}
                 className={`px-4 py-2 text-sm font-medium border-r border-gray-200 ${
-                  viewMode === 'design' 
-                    ? 'bg-gray-900 text-white' 
+                  viewMode === 'design'
+                    ? 'bg-gray-900 text-white'
                     : 'bg-white text-gray-500 hover:bg-gray-50'
                 }`}
               >
                 Design
               </button>
-              <button 
+              <button
                 onClick={() => setViewMode('mockups')}
                 className={`px-4 py-2 text-sm font-medium ${
-                  viewMode === 'mockups' 
-                    ? 'bg-gray-900 text-white' 
+                  viewMode === 'mockups'
+                    ? 'bg-gray-900 text-white'
                     : 'bg-white text-gray-500 hover:bg-gray-50'
                 }`}
               >
@@ -213,21 +344,57 @@ export default function BuilderPage() {
             {/* Color Selector */}
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700">Color</span>
-              <div className="flex gap-1">
-                {product.colors.map((color) => (
-                  <button
-                    key={color.id}
-                    onClick={() => setSelectedColor(color)}
-                    className={`w-7 h-7 rounded border-2 transition-all ${
-                      selectedColor.id === color.id
-                        ? 'border-blue-500 ring-2 ring-blue-200'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                    style={{ backgroundColor: color.hex }}
-                    title={color.name}
-                  />
-                ))}
-              </div>
+              {isProviderProduct && colours.length > 0 ? (
+                <div className="flex gap-1 items-center overflow-x-auto max-w-xl">
+                  {colours.map((colour) => {
+                    const isSelected = selectedColourId === colour.id;
+                    return (
+                      <button
+                        key={colour.id}
+                        onClick={() => handleColourSelect(colour.id)}
+                        className={`flex-shrink-0 w-9 h-9 rounded border-2 overflow-hidden transition-all ${
+                          isSelected
+                            ? 'border-blue-500 ring-2 ring-blue-200'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                        title={colour.name}
+                      >
+                        {colour.thumbnailUrl ? (
+                          <img
+                            src={colour.thumbnailUrl}
+                            alt={colour.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div
+                            className="w-full h-full"
+                            style={{ backgroundColor: colour.hex }}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex gap-1">
+                  {product.colors.map((color) => (
+                    <button
+                      key={color.id}
+                      onClick={() => setSelectedColor(color)}
+                      className={`w-7 h-7 rounded border-2 transition-all ${
+                        selectedColor.id === color.id
+                          ? 'border-blue-500 ring-2 ring-blue-200'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                      style={{ backgroundColor: color.hex }}
+                      title={color.name}
+                    />
+                  ))}
+                </div>
+              )}
+              {isProviderProduct && selectedColour && (
+                <span className="text-xs text-gray-500 flex-shrink-0">{selectedColour.name}</span>
+              )}
             </div>
 
             {/* Size Quantities */}
@@ -277,11 +444,12 @@ export default function BuilderPage() {
             <DesignCanvas
               ref={canvasRef}
               selectedColor={selectedColor}
-              printArea={product.printAreas.find(p => p.id === activeView) || product.printAreas[0]}
-              printAreas={product.printAreas}
+              printArea={availableViews.find(p => p.id === activeView) || availableViews[0]}
+              printAreas={availableViews}
               activeView={activeView}
               onViewChange={setActiveView}
               onDesignChange={handleDesignChange}
+              productImageUrl={productImageUrl}
             />
 
             {/* Quote Panel */}
@@ -332,11 +500,20 @@ export default function BuilderPage() {
       <ProductSelectorModal
         isOpen={showProductSelectorModal}
         onClose={() => setShowProductSelectorModal(false)}
-        onSelectProduct={(productId) => {
-          console.log('Selected product:', productId);
-          // For MVP, just log - would switch to the selected product
-        }}
+        onSelectProduct={handleSelectProduct}
       />
     </div>
+  );
+}
+
+export default function BuilderPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      </div>
+    }>
+      <BuilderPageContent />
+    </Suspense>
   );
 }

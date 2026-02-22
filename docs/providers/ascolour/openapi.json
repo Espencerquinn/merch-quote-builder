@@ -1,0 +1,874 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AS Colour NZ API",
+    "description": "API for accessing AS Colour product catalog, inventory, pricing, and authentication. HTTPS is always required. Data is returned using application/json with camelCase naming conventions. Contact: api@ascolour.com",
+    "version": "1.0.0",
+    "contact": {
+      "email": "api@ascolour.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.ascolour.co.nz/v1",
+      "description": "AS Colour NZ Production API"
+    }
+  ],
+  "security": [
+    {
+      "SubscriptionKeyHeader": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Catalog",
+      "description": "Product catalog endpoints"
+    },
+    {
+      "name": "Inventory",
+      "description": "Inventory management endpoints"
+    },
+    {
+      "name": "Authentication",
+      "description": "Authentication and token management"
+    },
+    {
+      "name": "Price List",
+      "description": "Pricing endpoints (requires Bearer token)"
+    }
+  ],
+  "paths": {
+    "/catalog/colours": {
+      "get": {
+        "tags": ["Catalog"],
+        "summary": "Get Style Colours",
+        "description": "Returns a list of style colours. Optionally filter by colour name.",
+        "operationId": "getStyleColours",
+        "parameters": [
+          {
+            "name": "ColourFilter",
+            "in": "query",
+            "description": "Filter colours by name (e.g. \"Red\")",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Red"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Colour"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "colour": "RED",
+                      "hex": "#bb1016",
+                      "hex2": ""
+                    },
+                    {
+                      "colour": "RED/BLACK",
+                      "hex": "#bb1016",
+                      "hex2": "#000000"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog/products/": {
+      "get": {
+        "tags": ["Catalog"],
+        "summary": "Get Products",
+        "description": "Returns a paginated list of all products.",
+        "operationId": "getProducts",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/pageNumber"
+          },
+          {
+            "$ref": "#/components/parameters/pageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Product"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "styleCode": "1001",
+                      "styleName": "Carrie Tote | 1001",
+                      "description": "Reinforced shoulder straps, one large main compartment<br />One size 42cm x 42cm, Gusset width 9.5cm, Strap length 72cm",
+                      "shortDescription": "Large Style",
+                      "printingTechniques": "Suited for screen printing, DTG and embroidery",
+                      "fabricWeight": "320 GSM",
+                      "composition": "Heavy weight, 320 GSM, 100% cotton canvas",
+                      "webId": 113,
+                      "productType": "Bags",
+                      "productWeight": "Heavy Weight",
+                      "coreRange": "",
+                      "fit": "",
+                      "gender": "",
+                      "productSpecURL": "https://cdn11.bigcommerce.com/s-nw7gte6txe/product_images/uploaded_images/SPEC_SHEET/SPEC_SHEET_1001_NZ.pdf",
+                      "sizeGuideURL": "",
+                      "websiteURL": "www.ascolour.co.nz/carrie-tote-1001/",
+                      "updatedAt": "2024-11-17T22:23:51.507"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog/products/{styleCode}": {
+      "get": {
+        "tags": ["Catalog"],
+        "summary": "Get Product by Style Code",
+        "description": "Returns a single product by its style code. Note: this endpoint returns the product object directly, not wrapped in a data array.",
+        "operationId": "getProductByStyleCode",
+        "parameters": [
+          {
+            "name": "styleCode",
+            "in": "path",
+            "description": "The product style code (e.g. \"1001\")",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "1001"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                },
+                "example": {
+                  "styleCode": "1001",
+                  "styleName": "Carrie Tote | 1001",
+                  "description": "Reinforced shoulder straps, one large main compartment<br />One size 42cm x 42cm, Gusset width 9.5cm, Strap length 72cm",
+                  "shortDescription": "Large Style",
+                  "printingTechniques": "Suited for screen printing, DTG and embroidery",
+                  "fabricWeight": "320 GSM",
+                  "composition": "Heavy weight, 320 GSM, 100% cotton canvas",
+                  "webId": 113,
+                  "productType": "Bags",
+                  "productWeight": "Heavy Weight",
+                  "coreRange": "",
+                  "fit": "",
+                  "gender": "",
+                  "productSpecURL": "https://cdn11.bigcommerce.com/s-nw7gte6txe/product_images/uploaded_images/SPEC_SHEET/SPEC_SHEET_1001_NZ.pdf",
+                  "sizeGuideURL": "",
+                  "websiteURL": "www.ascolour.co.nz/carrie-tote-1001/",
+                  "updatedAt": "2024-11-17T22:23:51.507"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog/products/{styleCode}/variants": {
+      "get": {
+        "tags": ["Catalog"],
+        "summary": "Get Product Variants",
+        "description": "Returns a list of variants (SKUs) for a given product style code, including colour, size, image URL, and barcode.",
+        "operationId": "getProductVariants",
+        "parameters": [
+          {
+            "name": "styleCode",
+            "in": "path",
+            "description": "The product style code (e.g. \"1001\")",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "1001"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Variant"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "sku": "1001-ARMY-P-OS",
+                      "styleCode": "1001",
+                      "name": "CARRIE TOTE ARMY ONE SIZE",
+                      "colour": "ARMY",
+                      "sizeCode": "One Size",
+                      "cartonQty": 50,
+                      "weight": null,
+                      "imageUrl": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/113/images/30593/1001_CARRIE_TOTE_ARMY__17094.1751581972.1280.1280.jpg?c=1",
+                      "webId": 81,
+                      "GTIN12": "198057000132",
+                      "discontinued": false,
+                      "updatedAt": "2024-07-23T09:58:53.213"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog/products/{styleCode}/images": {
+      "get": {
+        "tags": ["Catalog"],
+        "summary": "Get Product Images",
+        "description": "Returns a list of images for a given product style code in multiple sizes (tiny, thumbnail, standard, zoom). Images are categorized by imageType which indicates the colour and view (e.g. \"ARMY\", \"ARMY - BACK\", \"BACK\").",
+        "operationId": "getProductImages",
+        "parameters": [
+          {
+            "name": "styleCode",
+            "in": "path",
+            "description": "The product style code (e.g. \"5026\")",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "5026"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ProductImage"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "styleCode": "5026",
+                      "imageType": "ARMY",
+                      "urlStandard": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30991/5026_CLASSIC_TEE_ARMY__74150.1770852126.386.513.jpg?c=1",
+                      "urlThumbnail": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30991/5026_CLASSIC_TEE_ARMY__74150.1770852126.220.290.jpg?c=1",
+                      "urlTiny": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30991/5026_CLASSIC_TEE_ARMY__74150.1770852126.44.58.jpg?c=1",
+                      "urlZoom": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30991/5026_CLASSIC_TEE_ARMY__74150.1770852126.1280.1280.jpg?c=1"
+                    },
+                    {
+                      "styleCode": "5026",
+                      "imageType": "ARMY - BACK",
+                      "urlStandard": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30992/5026_CLASSIC_TEE_ARMY_BACK__92803.1770852126.386.513.jpg?c=1",
+                      "urlThumbnail": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30992/5026_CLASSIC_TEE_ARMY_BACK__92803.1770852126.220.290.jpg?c=1",
+                      "urlTiny": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30992/5026_CLASSIC_TEE_ARMY_BACK__92803.1770852126.44.58.jpg?c=1",
+                      "urlZoom": "https://cdn11.bigcommerce.com/s-nw7gte6txe/products/496/images/30992/5026_CLASSIC_TEE_ARMY_BACK__92803.1770852126.1280.1280.jpg?c=1"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog/pricelist": {
+      "get": {
+        "tags": ["Price List"],
+        "summary": "Get Variant Prices",
+        "description": "Returns a list of variant prices. Requires both a Subscription-Key and a Bearer authorization token obtained from the authentication endpoint.",
+        "operationId": "getPriceList",
+        "security": [
+          {
+            "SubscriptionKeyHeader": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/pageNumber"
+          },
+          {
+            "$ref": "#/components/parameters/pageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response - returns variant pricing data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "Variant price object (schema could not be verified - requires valid Bearer token)"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Bearer token missing or invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inventory/items": {
+      "get": {
+        "tags": ["Inventory"],
+        "summary": "Get Inventory Items",
+        "description": "Returns a paginated list of inventory items with stock quantities and next delivery ETAs. Supports SKU filtering with wildcards.",
+        "operationId": "getInventoryItems",
+        "parameters": [
+          {
+            "name": "skuFilter",
+            "in": "query",
+            "description": "Filter inventory items by SKU (supports wildcard matching, e.g. \"5001-WHITE\")",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "5001-WHITE"
+          },
+          {
+            "$ref": "#/components/parameters/pageNumber"
+          },
+          {
+            "$ref": "#/components/parameters/pageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/InventoryItem"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "sku": "5001-WHITE-H-M",
+                      "location": "AKL",
+                      "quantity": 13299,
+                      "nextDeliveryETA": null,
+                      "updatedAt": "2026-02-22T04:03:51.77"
+                    },
+                    {
+                      "sku": "5001-WHITE-J-XL",
+                      "location": "AKL",
+                      "quantity": 10961,
+                      "nextDeliveryETA": "2026-06-17T00:00:00",
+                      "updatedAt": "2026-02-22T04:03:51.717"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inventory/items/{sku}": {
+      "get": {
+        "tags": ["Inventory"],
+        "summary": "Get Inventory Item by SKU",
+        "description": "Returns inventory data for a specific SKU.",
+        "operationId": "getInventoryItemBySku",
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "description": "The full SKU identifier (e.g. \"1000-BLACK-P-OS\")",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "1000-BLACK-P-OS"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/InventoryItem"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [
+                    {
+                      "sku": "1000-BLACK-P-OS",
+                      "location": "AKL",
+                      "quantity": 320,
+                      "nextDeliveryETA": "2025-05-11T00:00:00",
+                      "updatedAt": "2026-02-18T22:00:22.423"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/authentication": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Get Authorization Token",
+        "description": "Returns a Bearer authorization token using your AS Colour website login credentials. This token is required for endpoints like the Price List API.",
+        "operationId": "authenticate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthRequest"
+              },
+              "example": {
+                "email": "your-email@example.com",
+                "password": "your-password"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful authentication - returns Bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (e.g. malformed JSON or invalid characters in request body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+                  "title": "One or more validation errors occurred.",
+                  "status": 400,
+                  "traceId": "|c87023bb-4f43cee2b71345b9.",
+                  "errors": {
+                    "$.password": ["'!' is an invalid escapable character within a JSON string."]
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "type": "https://tools.ietf.org/html/rfc7235#section-3.1",
+                  "title": "Unauthorized",
+                  "status": 401,
+                  "traceId": "|c87023bf-4f43cee2b71345b9."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "SubscriptionKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Subscription-Key",
+        "description": "API subscription key passed via the Subscription-Key header"
+      },
+      "SubscriptionKeyQuery": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "subscription-key",
+        "description": "API subscription key passed as a query parameter (fallback if header is not present)"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token obtained from the /api/authentication endpoint. Required for price list endpoints."
+      }
+    },
+    "parameters": {
+      "pageNumber": {
+        "name": "pageNumber",
+        "in": "query",
+        "description": "Specifies the page number in a paginated list of results",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "pageSize": {
+        "name": "pageSize",
+        "in": "query",
+        "description": "Controls the number of items per page (max 250)",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 250
+        }
+      }
+    },
+    "schemas": {
+      "Colour": {
+        "type": "object",
+        "properties": {
+          "colour": {
+            "type": "string",
+            "description": "Colour name (e.g. \"RED\", \"ARMY/BLACK\")"
+          },
+          "hex": {
+            "type": "string",
+            "description": "Primary hex colour code (e.g. \"#bb1016\"). May be empty string if not set."
+          },
+          "hex2": {
+            "type": "string",
+            "description": "Secondary hex colour code for dual-colour items (e.g. \"#000000\"). Empty string if single colour."
+          }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "styleCode": {
+            "type": "string",
+            "description": "Unique product style code (e.g. \"1001\")"
+          },
+          "styleName": {
+            "type": "string",
+            "description": "Product display name including style code (e.g. \"Carrie Tote | 1001\")"
+          },
+          "description": {
+            "type": "string",
+            "description": "Full product description. May contain HTML tags like <br />."
+          },
+          "shortDescription": {
+            "type": "string",
+            "description": "Brief product description (e.g. \"Large Style\")"
+          },
+          "printingTechniques": {
+            "type": "string",
+            "description": "Recommended printing/embellishment techniques. May contain HTML links."
+          },
+          "fabricWeight": {
+            "type": "string",
+            "description": "Fabric weight (e.g. \"320 GSM\")"
+          },
+          "composition": {
+            "type": "string",
+            "description": "Full fabric composition (e.g. \"Heavy weight, 320 GSM, 100% cotton canvas\")"
+          },
+          "webId": {
+            "type": "integer",
+            "description": "BigCommerce product ID"
+          },
+          "productType": {
+            "type": "string",
+            "description": "Product category (e.g. \"Bags\", \"T-Shirts\")"
+          },
+          "productWeight": {
+            "type": "string",
+            "description": "Weight category (e.g. \"Heavy Weight\", \"Mid Weight\")"
+          },
+          "coreRange": {
+            "type": "string",
+            "description": "Core range indicator. Empty string if not applicable."
+          },
+          "fit": {
+            "type": "string",
+            "description": "Fit type (e.g. \"Regular\", \"Relaxed\"). Empty string if not applicable."
+          },
+          "gender": {
+            "type": "string",
+            "description": "Target gender. Empty string if unisex or not applicable."
+          },
+          "productSpecURL": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to the product specification sheet PDF"
+          },
+          "sizeGuideURL": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to the size guide. Empty string if not available."
+          },
+          "websiteURL": {
+            "type": "string",
+            "description": "Relative website URL for the product page"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of last update"
+          }
+        }
+      },
+      "Variant": {
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string",
+            "description": "Full SKU identifier (e.g. \"1001-ARMY-P-OS\")"
+          },
+          "styleCode": {
+            "type": "string",
+            "description": "Parent product style code (e.g. \"1001\")"
+          },
+          "name": {
+            "type": "string",
+            "description": "Full variant name (e.g. \"CARRIE TOTE ARMY ONE SIZE\")"
+          },
+          "colour": {
+            "type": "string",
+            "description": "Variant colour (e.g. \"ARMY\", \"BLACK\")"
+          },
+          "sizeCode": {
+            "type": "string",
+            "description": "Size code (e.g. \"One Size\", \"OS\", \"S\", \"M\", \"L\", \"XL\")"
+          },
+          "cartonQty": {
+            "type": "integer",
+            "description": "Number of units per carton"
+          },
+          "weight": {
+            "type": "number",
+            "nullable": true,
+            "description": "Variant weight. Null if not specified."
+          },
+          "imageUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to the variant product image (1280x1280 max)"
+          },
+          "webId": {
+            "type": "integer",
+            "description": "BigCommerce variant ID"
+          },
+          "GTIN12": {
+            "type": "string",
+            "description": "12-digit Global Trade Item Number (UPC barcode)"
+          },
+          "discontinued": {
+            "type": "boolean",
+            "description": "Whether this variant has been discontinued"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of last update"
+          }
+        }
+      },
+      "ProductImage": {
+        "type": "object",
+        "properties": {
+          "styleCode": {
+            "type": "string",
+            "description": "Parent product style code"
+          },
+          "imageType": {
+            "type": "string",
+            "description": "Image category - colour name and/or view angle. Examples: \"\" (default/hero), \"ARMY\", \"ARMY - BACK\", \"BACK\", \"ATLANTIC\", \"ATLANTIC - BACK\""
+          },
+          "urlStandard": {
+            "type": "string",
+            "format": "uri",
+            "description": "Standard size image URL (386x513)"
+          },
+          "urlThumbnail": {
+            "type": "string",
+            "format": "uri",
+            "description": "Thumbnail size image URL (220x290)"
+          },
+          "urlTiny": {
+            "type": "string",
+            "format": "uri",
+            "description": "Tiny size image URL (44x58)"
+          },
+          "urlZoom": {
+            "type": "string",
+            "format": "uri",
+            "description": "Zoom/full size image URL (1280x1280)"
+          }
+        }
+      },
+      "InventoryItem": {
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string",
+            "description": "Full SKU identifier (e.g. \"1000-BLACK-P-OS\")"
+          },
+          "location": {
+            "type": "string",
+            "description": "Warehouse location code (e.g. \"AKL\" for Auckland)"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Current stock quantity"
+          },
+          "nextDeliveryETA": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ISO 8601 timestamp of next expected delivery. Null if no delivery scheduled."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of last inventory update"
+          }
+        }
+      },
+      "AuthRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Your AS Colour website login email"
+          },
+          "password": {
+            "type": "string",
+            "description": "Your AS Colour website login password"
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "description": "Successful authentication response containing a Bearer token",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Bearer authorization token to use in the Authorization header for protected endpoints"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri",
+            "description": "RFC reference URL for the error type"
+          },
+          "title": {
+            "type": "string",
+            "description": "Human-readable error title"
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP status code"
+          },
+          "traceId": {
+            "type": "string",
+            "description": "Request trace ID for debugging"
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Field-level validation errors. Keys are field paths, values are arrays of error messages."
+          }
+        }
+      }
+    }
+  }
+}

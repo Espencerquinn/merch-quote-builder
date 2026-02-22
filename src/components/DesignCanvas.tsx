@@ -28,10 +28,14 @@ interface DesignCanvasProps {
   activeView: PrintAreaView;
   onViewChange: (view: PrintAreaView) => void;
   onDesignChange: (elements: DesignElement[]) => void;
+  productImageUrl?: string | null;
 }
 
+const CANVAS_WIDTH = 500;
+const CANVAS_HEIGHT = 600;
+
 const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function DesignCanvas(
-  { selectedColor, printArea, printAreas, activeView, onViewChange, onDesignChange },
+  { selectedColor, printArea, printAreas, activeView, onViewChange, onDesignChange, productImageUrl },
   ref
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -41,7 +45,7 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
 
   const syncDesignState = useCallback(() => {
     if (!fabricRef.current) return;
-    
+
     const objects = fabricRef.current.getObjects() as CustomFabricObject[];
     const elements: DesignElement[] = objects
       .filter((obj) => obj.customData?.isDesignElement)
@@ -61,7 +65,7 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
         fontSize: (obj as IText).fontSize,
         fill: (obj as IText).fill as string,
       }));
-    
+
     onDesignChange(elements);
   }, [onDesignChange]);
 
@@ -69,16 +73,16 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
   useImperativeHandle(ref, () => ({
     addImage: (file: File) => {
       if (!fabricRef.current) return;
-      
+
       const reader = new FileReader();
       reader.onload = async (event) => {
         const imgData = event.target?.result as string;
-        
+
         const img = await FabricImage.fromURL(imgData);
         const area = printAreaRef.current;
         const maxWidth = area.width * 0.8;
         const maxHeight = area.height * 0.8;
-        
+
         const scale = Math.min(
           maxWidth / (img.width || 1),
           maxHeight / (img.height || 1),
@@ -93,7 +97,7 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
           scaleX: scale,
           scaleY: scale,
         });
-        
+
         (img as CustomFabricObject).customData = {
           isDesignElement: true,
           type: 'image',
@@ -107,10 +111,10 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
       };
       reader.readAsDataURL(file);
     },
-    
+
     addText: (text: string, fontFamily: string, color: string) => {
       if (!fabricRef.current) return;
-      
+
       const area = printAreaRef.current;
       const textObj = new IText(text, {
         left: area.x + area.width / 2,
@@ -121,7 +125,7 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
         fontSize: 32,
         fill: color,
       }) as CustomFabricObject;
-      
+
       textObj.customData = {
         isDesignElement: true,
         type: 'text',
@@ -138,15 +142,15 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
     printAreaRef.current = printArea;
   }, [printArea]);
 
+  // Stabilize printArea identity to avoid re-creating canvas on every render
+  const printAreaKey = `${printArea.id}-${printArea.width}-${printArea.height}`;
+
   useEffect(() => {
     if (!canvasRef.current) return;
 
-    const canvasWidth = 500;
-    const canvasHeight = 600;
-
     const canvas = new Canvas(canvasRef.current, {
-      width: canvasWidth,
-      height: canvasHeight,
+      width: CANVAS_WIDTH,
+      height: CANVAS_HEIGHT,
       backgroundColor: 'transparent',
       selection: true,
     });
@@ -154,10 +158,10 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
     fabricRef.current = canvas;
 
     // Calculate centered print area position
-    const centeredX = (canvasWidth - printArea.width) / 2;
-    const centeredY = (canvasHeight - printArea.height) / 2;
+    const centeredX = (CANVAS_WIDTH - printArea.width) / 2;
+    const centeredY = (CANVAS_HEIGHT - printArea.height) / 2;
 
-    // Draw print area boundary - centered and with teal/cyan color like reference
+    // Draw print area boundary
     const boundary = new Rect({
       left: centeredX,
       top: centeredY,
@@ -173,19 +177,18 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
     boundary.customData = { isBoundary: true };
     canvas.add(boundary);
 
-    // Update printAreaRef with centered coordinates for element placement
+    // Update printAreaRef with centered coordinates
     printAreaRef.current = {
       ...printArea,
       x: centeredX,
       y: centeredY,
     };
 
-    // Configure selection styling for design elements
+    // Configure selection styling
     canvas.selectionColor = 'rgba(20, 184, 166, 0.1)';
     canvas.selectionBorderColor = '#14b8a6';
     canvas.selectionLineWidth = 2;
-    
-    // Set default object controls styling
+
     FabricObject.prototype.set({
       borderColor: '#14b8a6',
       cornerColor: '#14b8a6',
@@ -205,11 +208,12 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
     return () => {
       canvas.dispose();
     };
-  }, [printArea, syncDesignState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printAreaKey, syncDesignState]);
 
   const deleteSelected = () => {
     if (!fabricRef.current) return;
-    
+
     const activeObjects = fabricRef.current.getActiveObjects() as CustomFabricObject[];
     activeObjects.forEach((obj) => {
       if (obj.customData?.isDesignElement) {
@@ -243,7 +247,7 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
 
       {/* Canvas Area */}
       <div className="flex-1 flex items-center justify-center p-8 relative" style={{ backgroundColor: '#e5e7eb' }}>
-        {/* Delete button - floating */}
+        {/* Delete button */}
         {hasSelection && (
           <button
             onClick={deleteSelected}
@@ -254,27 +258,34 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
           </button>
         )}
 
-        <div className="relative">
-          {/* T-shirt mockup background */}
+        <div className="relative" style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
+          {/* Background layer — isolated from Fabric.js DOM */}
+          <div className="absolute inset-0 z-0 rounded-lg overflow-hidden" style={{ boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+            {productImageUrl ? (
+              <img
+                src={productImageUrl}
+                alt="Product"
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <div
+                className="w-full h-full"
+                style={{ backgroundColor: selectedColor.hex }}
+              />
+            )}
+          </div>
+
+          {/* Fabric.js canvas — in its own container so React doesn't conflict with Fabric's DOM */}
+          <div className="absolute inset-0 z-10">
+            <canvas ref={canvasRef} />
+          </div>
+
+          {/* Print area label */}
           <div
-            className="absolute inset-0"
-            style={{
-              width: 500,
-              height: 600,
-              backgroundColor: selectedColor.hex,
-              borderRadius: 8,
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-            }}
-          />
-          
-          <canvas ref={canvasRef} className="relative z-10" />
-          
-          {/* Print area label - positioned at bottom center of print area */}
-          <div 
             className="absolute z-20 pointer-events-none"
             style={{
               left: '50%',
-              bottom: (600 - printArea.height) / 2 - 30,
+              bottom: (CANVAS_HEIGHT - printArea.height) / 2 - 30,
               transform: 'translateX(-50%)',
             }}
           >
