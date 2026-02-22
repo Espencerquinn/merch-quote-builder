@@ -14,7 +14,7 @@ import HireDesignerModal from '@/components/HireDesignerModal';
 import ProductSelectorModal from '@/components/ProductSelectorModal';
 import MockupsView from '@/components/MockupsView';
 import { getDefaultProduct, ProductColor, PrintAreaView } from '@/lib/products';
-import { calculateQuote, isHighIntent, determineLeadCategory } from '@/lib/pricing';
+import { calculateQuote, calculateProductQuote, isHighIntent, determineLeadCategory } from '@/lib/pricing';
 import { DesignElement, DesignState } from '@/types';
 import type { ProductDetail, NormalizedColour, NormalizedImage } from '@/lib/providers/types';
 
@@ -82,13 +82,16 @@ function BuilderPageContent() {
     setProductLoading(true);
 
     fetch(`/api/products/${encodeURIComponent(productParam)}`)
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load product (${r.status})`);
+        return r.json();
+      })
       .then((data: ProductDetail) => {
         if (cancelled) return;
         setProductDetail(data);
 
         // Auto-select first colour
-        if (data.colours.length > 0) {
+        if (data.colours?.length > 0) {
           const first = data.colours[0];
           setSelectedColourId(first.id);
           setSelectedColor({
@@ -98,8 +101,16 @@ function BuilderPageContent() {
             mockupImage: '',
           });
         }
+
+        // Reset size quantities to match real sizes from provider
+        if (data.sizes?.length > 0) {
+          const initial: Record<string, number> = {};
+          data.sizes.forEach(size => { initial[size.id] = 0; });
+          setSizeQuantities(initial);
+        }
       })
       .catch(err => {
+        if (!cancelled) setProductDetail(null);
         console.error('Error loading product:', err);
       })
       .finally(() => {
@@ -121,8 +132,11 @@ function BuilderPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [emailData, setEmailData] = useState<EmailCaptureData | null>(null);
 
-  // Calculate quote
-  const quote = calculateQuote(quantity);
+  // Calculate quote — use real pricing when available
+  const hasRealPricing = !!(productDetail?.pricing);
+  const quote = hasRealPricing
+    ? calculateProductQuote(quantity, productDetail!.pricing!.baseRetailPrice)
+    : calculateQuote(quantity);
 
   // Get current design state
   const getDesignState = useCallback((): DesignState => ({
@@ -238,7 +252,7 @@ function BuilderPageContent() {
 
   // Get available views for the current product
   const availableViews = useMemo(() => {
-    if (!isProviderProduct || !productDetail) {
+    if (!isProviderProduct || !productDetail || !productDetail.availableViews) {
       return product.printAreas;
     }
     const views: { id: PrintAreaView; name: string; x: number; y: number; width: number; height: number }[] = [];
@@ -401,7 +415,10 @@ function BuilderPageContent() {
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700">Sizes</span>
               <div className="flex gap-2">
-                {product.sizes.map((size) => (
+                {(isProviderProduct && productDetail.sizes.length > 0
+                  ? productDetail.sizes
+                  : product.sizes
+                ).map((size) => (
                   <div key={size.id} className="flex flex-col items-center">
                     <span className="text-xs font-medium text-gray-500 mb-1">{size.name}</span>
                     <input
@@ -456,6 +473,8 @@ function BuilderPageContent() {
             <QuotePanel
               quote={quote}
               onEmailQuote={handleEmailQuote}
+              productName={isProviderProduct ? productDetail.name : undefined}
+              isRealPricing={hasRealPricing}
             />
           </>
         ) : (

@@ -1,6 +1,7 @@
-import { fetchProducts, fetchProduct, fetchProductImages } from '@/lib/ascolour';
-import type { ASColourProduct, ASColourProductImage } from '@/types/ascolour';
-import type { ProductProvider, ProductSummary, ProductDetail, NormalizedColour, NormalizedImage } from '../types';
+import { fetchProducts, fetchProduct, fetchProductImages, fetchProductVariants, getPricelistMap } from '@/lib/ascolour';
+import type { ASColourProduct, ASColourProductImage, ASColourVariant } from '@/types/ascolour';
+import type { ProductProvider, ProductSummary, ProductDetail, NormalizedColour, NormalizedImage, VariantPricing, ProductPricing } from '../types';
+import { applyMarkup } from '@/lib/markup';
 
 // Generic view names that aren't actual colours
 const GENERIC_VIEWS = new Set(['BACK', 'FRONT', 'MAIN', 'SIDE', 'TURN']);
@@ -153,12 +154,56 @@ export const asColourProvider: ProductProvider = {
   },
 
   async getProduct(styleCode: string): Promise<ProductDetail> {
-    const [productData, imagesData] = await Promise.all([
+    const [productData, imagesData, variantsData, pricelistMap] = await Promise.all([
       fetchProduct(styleCode) as Promise<ASColourProduct>,
       fetchProductImages(styleCode).then(r => (r.data || []) as ASColourProductImage[]),
+      fetchProductVariants(styleCode).then(r => (r.data || []) as ASColourVariant[]),
+      getPricelistMap(),
     ]);
 
     const { colours, normalizedImages, availableViews } = parseProductImages(imagesData);
+
+    // Derive sizes from non-discontinued variants (deduplicated, ordered)
+    const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
+    const sizeSet = new Set<string>();
+    const activeVariants = variantsData.filter(v => !v.discontinued);
+    for (const v of activeVariants) {
+      sizeSet.add(v.sizeCode);
+    }
+    const sizes = Array.from(sizeSet)
+      .sort((a, b) => {
+        const ai = sizeOrder.indexOf(a);
+        const bi = sizeOrder.indexOf(b);
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      })
+      .map(s => ({ id: s.toLowerCase(), name: s }));
+
+    // Build pricing from variants + pricelist
+    let pricing: ProductPricing | undefined;
+    const variantPrices: VariantPricing[] = [];
+
+    for (const v of activeVariants) {
+      const priceEntry = pricelistMap.get(v.sku);
+      if (!priceEntry) continue;
+
+      variantPrices.push({
+        sku: v.sku,
+        sizeCode: v.sizeCode,
+        colour: v.colour,
+        wholesalePrice: priceEntry.price,
+        retailPrice: applyMarkup(priceEntry.price),
+        currency: priceEntry.currency,
+      });
+    }
+
+    if (variantPrices.length > 0) {
+      const minRetail = Math.min(...variantPrices.map(v => v.retailPrice));
+      pricing = {
+        baseRetailPrice: minRetail,
+        currency: variantPrices[0].currency,
+        variants: variantPrices,
+      };
+    }
 
     return {
       id: makeCompoundId(styleCode),
@@ -170,7 +215,8 @@ export const asColourProvider: ProductProvider = {
       colours,
       images: normalizedImages,
       availableViews,
-      sizes: [], // AS Colour sizes come from variants — not yet integrated
+      sizes,
+      pricing,
       metadata: {
         styleCode: productData.styleCode,
         fabricWeight: productData.fabricWeight,

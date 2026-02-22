@@ -50,6 +50,12 @@ export interface ASColourColour {
   hex2: string;
 }
 
+export interface ASColourPricelistItem {
+  sku: string;
+  price: number;
+  currency: string;
+}
+
 // Parsed view from image data
 export interface ProductView {
   id: string;

@@ -57,6 +57,32 @@ export function calculateQuote(quantity: number): QuoteBreakdown {
   };
 }
 
+/** Quote calculation using real per-unit blank cost (from provider pricing) */
+export function calculateProductQuote(quantity: number, blankCostPerUnit: number): QuoteBreakdown {
+  const blankCostTotal = blankCostPerUnit * quantity;
+
+  const printCostPerUnit = pricingConfig.printCostPerUnit;
+  const printCostTotal = printCostPerUnit * quantity;
+
+  const setupFee = quantity < pricingConfig.setupFee.threshold
+    ? pricingConfig.setupFee.amount
+    : 0;
+
+  const totalCost = blankCostTotal + printCostTotal + setupFee;
+  const costPerUnit = quantity > 0 ? totalCost / quantity : 0;
+
+  return {
+    quantity,
+    blankCostPerUnit,
+    blankCostTotal,
+    printCostPerUnit,
+    printCostTotal,
+    setupFee,
+    totalCost,
+    costPerUnit,
+  };
+}
+
 export type LeadCategory = 'self-serve-small' | 'mid-tier' | 'high-intent';
 
 export function determineLeadCategory(

@@ -24,11 +24,27 @@ export interface ProductSummary {
   provider: string;
 }
 
+export interface VariantPricing {
+  sku: string;
+  sizeCode: string;
+  colour: string;
+  wholesalePrice: number;
+  retailPrice: number;
+  currency: string;
+}
+
+export interface ProductPricing {
+  baseRetailPrice: number;
+  currency: string;
+  variants: VariantPricing[];
+}
+
 export interface ProductDetail extends ProductSummary {
   colours: NormalizedColour[];
   images: NormalizedImage[];
   availableViews: ('front' | 'back' | 'side')[];
   sizes: { id: string; name: string }[];
+  pricing?: ProductPricing;
   metadata: Record<string, unknown>;
 }
 
