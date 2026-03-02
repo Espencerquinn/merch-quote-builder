@@ -19,6 +19,9 @@ interface CustomFabricObject extends FabricObject {
 export interface DesignCanvasHandle {
   addImage: (file: File) => void;
   addText: (text: string, fontFamily: string, color: string) => void;
+  getCanvasState: () => string | null;
+  loadCanvasState: (json: string) => void;
+  getCanvasThumbnail: () => Promise<string | null>;
 }
 
 interface DesignCanvasProps {
@@ -34,14 +37,28 @@ interface DesignCanvasProps {
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 600;
 
+function proxyImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  // Same-origin URLs don't need proxying
+  if (url.startsWith('/') || url.startsWith('data:')) return url;
+  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
 const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function DesignCanvas(
   { selectedColor, printArea, printAreas, activeView, onViewChange, onDesignChange, productImageUrl },
   ref
 ) {
+  const proxiedImageUrl = proxyImageUrl(productImageUrl);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<Canvas | null>(null);
   const printAreaRef = useRef(printArea);
+  const proxiedImageUrlRef = useRef(proxiedImageUrl);
   const [hasSelection, setHasSelection] = useState(false);
+
+  // Keep ref in sync so imperative handle always has latest value
+  useEffect(() => {
+    proxiedImageUrlRef.current = proxiedImageUrl;
+  }, [proxiedImageUrl]);
 
   const syncDesignState = useCallback(() => {
     if (!fabricRef.current) return;
@@ -136,7 +153,107 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
       fabricRef.current.setActiveObject(textObj as FabricObject);
       fabricRef.current.renderAll();
     },
-  }), []);
+
+    getCanvasState: () => {
+      if (!fabricRef.current) return null;
+      return JSON.stringify(fabricRef.current.toJSON());
+    },
+
+    loadCanvasState: (json: string) => {
+      if (!fabricRef.current) return;
+      fabricRef.current.loadFromJSON(json).then(() => {
+        fabricRef.current?.renderAll();
+        syncDesignState();
+      });
+    },
+
+    getCanvasThumbnail: async () => {
+      if (!fabricRef.current || !canvasRef.current) return null;
+
+      try {
+        const offscreen = document.createElement('canvas');
+        offscreen.width = CANVAS_WIDTH;
+        offscreen.height = CANVAS_HEIGHT;
+        const ctx = offscreen.getContext('2d');
+        if (!ctx) return null;
+
+        // Fill background
+        ctx.fillStyle = '#e5e7eb';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // Load product image through proxy (same-origin) for clean canvas export
+        const currentProxiedUrl = proxiedImageUrlRef.current;
+        if (currentProxiedUrl) {
+          try {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            await new Promise<void>((resolve, reject) => {
+              img.onload = () => resolve();
+              img.onerror = () => reject(new Error('Image load failed'));
+              img.src = currentProxiedUrl;
+            });
+
+            const imgAspect = img.naturalWidth / img.naturalHeight;
+            const canvasAspect = CANVAS_WIDTH / CANVAS_HEIGHT;
+            let drawW = CANVAS_WIDTH;
+            let drawH = CANVAS_HEIGHT;
+            let drawX = 0;
+            let drawY = 0;
+
+            if (imgAspect > canvasAspect) {
+              drawH = CANVAS_WIDTH / imgAspect;
+              drawY = (CANVAS_HEIGHT - drawH) / 2;
+            } else {
+              drawW = CANVAS_HEIGHT * imgAspect;
+              drawX = (CANVAS_WIDTH - drawW) / 2;
+            }
+            ctx.drawImage(img, drawX, drawY, drawW, drawH);
+          } catch {
+            // If proxy image fails, continue with gray background
+          }
+        }
+
+        // Remove boundary objects, export via Fabric's toDataURL, then restore
+        const allObjects = [...fabricRef.current.getObjects()] as CustomFabricObject[];
+        const removedObjects: CustomFabricObject[] = [];
+        for (const obj of allObjects) {
+          if (!obj.customData?.isDesignElement) {
+            fabricRef.current.remove(obj as FabricObject);
+            removedObjects.push(obj);
+          }
+        }
+
+        // Use Fabric.js's own toDataURL — renders fresh from object list, no stale canvas
+        const designDataUrl = fabricRef.current.toDataURL({
+          format: 'png',
+          width: CANVAS_WIDTH,
+          height: CANVAS_HEIGHT,
+          multiplier: 1,
+        });
+
+        // Restore removed objects
+        for (const obj of removedObjects) {
+          fabricRef.current.add(obj as FabricObject);
+          fabricRef.current.sendObjectToBack(obj as FabricObject);
+        }
+        fabricRef.current.renderAll();
+
+        // Draw Fabric design layer on top of product image
+        const designImg = new Image();
+        await new Promise<void>((resolve, reject) => {
+          designImg.onload = () => resolve();
+          designImg.onerror = () => reject(new Error('Design image load failed'));
+          designImg.src = designDataUrl;
+        });
+        ctx.drawImage(designImg, 0, 0);
+
+        return offscreen.toDataURL('image/jpeg', 0.7);
+      } catch (err) {
+        console.error('Failed to generate thumbnail:', err);
+        return null;
+      }
+    },
+  }), [syncDesignState]);
 
   useEffect(() => {
     printAreaRef.current = printArea;
@@ -261,9 +378,10 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
         <div className="relative" style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
           {/* Background layer — isolated from Fabric.js DOM */}
           <div className="absolute inset-0 z-0 rounded-lg overflow-hidden" style={{ boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-            {productImageUrl ? (
+            {proxiedImageUrl ? (
               <img
-                src={productImageUrl}
+                src={proxiedImageUrl}
+                crossOrigin="anonymous"
                 alt="Product"
                 className="w-full h-full object-contain"
               />

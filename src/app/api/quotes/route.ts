@@ -1,44 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
-
-// In-memory storage for MVP (replace with Supabase in production)
-const quotes: Map<string, unknown> = new Map();
+import { db } from '@/lib/db';
+import { quotes } from '@/lib/db/schema';
+import { desc } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { designState, quote, lead } = body;
 
-    const quoteId = uuidv4();
-    const timestamp = new Date().toISOString();
+    const status = lead ? 'saved' : 'started';
 
-    const quoteData = {
-      id: quoteId,
-      designState,
-      quote,
-      lead,
-      status: lead ? 'saved' : 'started',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-
-    // Store quote (in-memory for MVP)
-    quotes.set(quoteId, quoteData);
+    const [quoteRecord] = await db
+      .insert(quotes)
+      .values({
+        designStateJson: JSON.stringify(designState),
+        quoteJson: JSON.stringify(quote),
+        leadJson: lead ? JSON.stringify(lead) : null,
+        status: status as 'started' | 'saved',
+      })
+      .returning();
 
     // Send email if lead data provided
     if (lead?.email) {
       try {
-        await sendQuoteEmail(lead.email, lead.name, quote, quoteId);
+        await sendQuoteEmail(lead.email, lead.name, quote, quoteRecord.id);
       } catch (emailError) {
         console.error('Failed to send email:', emailError);
-        // Don't fail the request if email fails
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      quoteId,
-      message: 'Quote saved successfully' 
+    return NextResponse.json({
+      success: true,
+      quoteId: quoteRecord.id,
+      message: 'Quote saved successfully'
     });
   } catch (error) {
     console.error('Error saving quote:', error);
@@ -51,8 +45,23 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const allQuotes = Array.from(quotes.values());
-    return NextResponse.json({ quotes: allQuotes });
+    const allQuotes = await db
+      .select()
+      .from(quotes)
+      .orderBy(desc(quotes.createdAt));
+
+    // Transform back to the shape the admin dashboard expects
+    const formatted = allQuotes.map((q) => ({
+      id: q.id,
+      designState: JSON.parse(q.designStateJson),
+      quote: JSON.parse(q.quoteJson),
+      lead: q.leadJson ? JSON.parse(q.leadJson) : null,
+      status: q.status,
+      createdAt: q.createdAt?.toISOString(),
+      updatedAt: q.updatedAt?.toISOString(),
+    }));
+
+    return NextResponse.json({ quotes: formatted });
   } catch (error) {
     console.error('Error fetching quotes:', error);
     return NextResponse.json(
@@ -75,9 +84,8 @@ async function sendQuoteEmail(
   },
   quoteId: string
 ) {
-  // Check if Resend API key is configured
   const resendApiKey = process.env.RESEND_API_KEY;
-  
+
   if (!resendApiKey) {
     console.log('Resend API key not configured, skipping email');
     console.log('Would send email to:', email);
@@ -98,7 +106,7 @@ async function sendQuoteEmail(
   await resend.emails.send({
     from: 'Merch Makers <quotes@merchmakers.com>',
     to: email,
-    subject: 'Your Merch Makers Quote Is Ready 👕',
+    subject: 'Your Merch Makers Quote Is Ready',
     html: `
       <!DOCTYPE html>
       <html>
@@ -121,12 +129,12 @@ async function sendQuoteEmail(
         <body>
           <div class="container">
             <div class="header">
-              <div class="logo">👕 Merch Makers</div>
+              <div class="logo">Merch Makers</div>
             </div>
-            
+
             <h1>Hey ${name}!</h1>
             <p>Thanks for designing with us. Here's your quote breakdown:</p>
-            
+
             <div class="quote-box">
               <div class="quote-row">
                 <span class="quote-label">Quantity</span>
@@ -155,17 +163,17 @@ async function sendQuoteEmail(
                 <span class="quote-value">${formatCurrency(quote.costPerUnit)}</span>
               </div>
             </div>
-            
+
             <p style="text-align: center;">
               <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/builder?resume=${quoteId}" class="cta-button">
                 Resume Your Design
               </a>
             </p>
-            
+
             <p>Need help with your order? Just reply to this email and our team will be happy to assist.</p>
-            
+
             <div class="footer">
-              <p>© 2024 Merch Makers. All rights reserved.</p>
+              <p>Merch Makers. All rights reserved.</p>
             </div>
           </div>
         </body>

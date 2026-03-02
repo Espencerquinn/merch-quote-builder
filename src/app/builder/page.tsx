@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Undo, Redo, Loader2 } from 'lucide-react';
+import { ArrowLeft, Undo, Redo, Loader2, Save, Check } from 'lucide-react';
 import ProductSelector from '@/components/ProductSelector';
 import DesignCanvas from '@/components/DesignCanvas';
 import QuotePanel from '@/components/QuotePanel';
@@ -12,8 +12,10 @@ import HighIntentModal, { HighIntentData } from '@/components/HighIntentModal';
 import UploadArtworkModal from '@/components/UploadArtworkModal';
 import HireDesignerModal from '@/components/HireDesignerModal';
 import ProductSelectorModal from '@/components/ProductSelectorModal';
+import PostDesignModal from '@/components/PostDesignModal';
 import MockupsView from '@/components/MockupsView';
 import { getDefaultProduct, ProductColor, PrintAreaView } from '@/lib/products';
+import type { DesignCanvasHandle } from '@/components/DesignCanvas';
 import { calculateQuote, calculateProductQuote, isHighIntent, determineLeadCategory } from '@/lib/pricing';
 import { DesignElement, DesignState } from '@/types';
 import type { ProductDetail, NormalizedColour, NormalizedImage } from '@/lib/providers/types';
@@ -25,8 +27,10 @@ function BuilderPageContent() {
   const searchParams = useSearchParams();
   const productParam = searchParams.get('product'); // compound ID like "ascolour:5026"
 
+  const editParam = searchParams.get('edit'); // decorated product ID to load
+
   const defaultProduct = getDefaultProduct();
-  const canvasRef = useRef<{ addImage: (file: File) => void; addText: (text: string, fontFamily: string, color: string) => void } | null>(null);
+  const canvasRef = useRef<DesignCanvasHandle | null>(null);
 
   // Product state from provider
   const [productDetail, setProductDetail] = useState<ProductDetail | null>(null);
@@ -131,6 +135,10 @@ function BuilderPageContent() {
   const [showProductSelectorModal, setShowProductSelectorModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [emailData, setEmailData] = useState<EmailCaptureData | null>(null);
+  const [showPostDesignModal, setShowPostDesignModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedDesignId, setSavedDesignId] = useState<string | null>(editParam);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Calculate quote — use real pricing when available
   const hasRealPricing = !!(productDetail?.pricing);
@@ -231,6 +239,114 @@ function BuilderPageContent() {
 
   const handleSelectProduct = (compoundId: string) => {
     router.push(`/builder?product=${encodeURIComponent(compoundId)}`);
+  };
+
+  // Load existing decorated product for editing
+  useEffect(() => {
+    if (!editParam) return;
+    let cancelled = false;
+
+    fetch(`/api/decorated-products/${editParam}`)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to load design');
+        return r.json();
+      })
+      .then(data => {
+        if (cancelled) return;
+        setSavedDesignId(data.id);
+        // Load the canvas state once the canvas is ready
+        if (data.canvasStateJson) {
+          const state = typeof data.canvasStateJson === 'string'
+            ? JSON.parse(data.canvasStateJson)
+            : data.canvasStateJson;
+          // Load per-view state for current view, or the whole state
+          const viewState = state[activeView] || state;
+          if (viewState && canvasRef.current) {
+            canvasRef.current.loadCanvasState(
+              typeof viewState === 'string' ? viewState : JSON.stringify(viewState)
+            );
+          }
+        }
+      })
+      .catch(err => {
+        if (!cancelled) console.error('Error loading design:', err);
+      });
+
+    return () => { cancelled = true; };
+  }, [editParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save design handler
+  const handleSaveDesign = async () => {
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      // Get canvas state for current view
+      const canvasState = canvasRef.current?.getCanvasState() ?? null;
+      const canvasStateObj: Record<string, string | null> = {};
+      canvasStateObj[activeView] = canvasState;
+
+      // Capture thumbnail of the current design
+      const thumbnailUrl = await canvasRef.current?.getCanvasThumbnail() ?? null;
+
+      const body = {
+        baseProductId: productParam || product.id,
+        name: product.name,
+        selectedColourId: selectedColourId || selectedColor.id,
+        canvasStateJson: JSON.stringify(canvasStateObj),
+        thumbnailUrl,
+      };
+
+      let response;
+      if (savedDesignId) {
+        // Update existing
+        response = await fetch(`/api/decorated-products/${savedDesignId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } else {
+        // Create new
+        response = await fetch('/api/decorated-products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }
+
+      if (!response.ok) throw new Error('Failed to save');
+
+      const data = await response.json();
+      if (data.id) setSavedDesignId(data.id);
+
+      // Store claim token for anonymous users
+      if (data.claimToken) {
+        localStorage.setItem('claimToken', data.claimToken);
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+      setShowPostDesignModal(true);
+    } catch (error) {
+      console.error('Error saving design:', error);
+      alert('Failed to save design. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleBuyProduct = () => {
+    setShowPostDesignModal(false);
+    if (savedDesignId) {
+      router.push(`/dashboard/products/${savedDesignId}/checkout`);
+    } else {
+      router.push('/dashboard/products');
+    }
+  };
+
+  const handleAddToStore = () => {
+    setShowPostDesignModal(false);
+    router.push('/dashboard/stores');
   };
 
   // Get the product image URL for the current view and colour
@@ -347,6 +463,24 @@ function BuilderPageContent() {
                 Mockups
               </button>
             </div>
+            <button
+              onClick={handleSaveDesign}
+              disabled={isSaving}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                saveSuccess
+                  ? 'bg-green-600 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              } disabled:opacity-50`}
+            >
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : saveSuccess ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : savedDesignId ? 'Update Design' : 'Save Design'}
+            </button>
           </div>
         </div>
       </header>
@@ -520,6 +654,15 @@ function BuilderPageContent() {
         isOpen={showProductSelectorModal}
         onClose={() => setShowProductSelectorModal(false)}
         onSelectProduct={handleSelectProduct}
+      />
+
+      {/* Post-Design Modal */}
+      <PostDesignModal
+        isOpen={showPostDesignModal}
+        onClose={() => setShowPostDesignModal(false)}
+        onBuyProduct={handleBuyProduct}
+        onAddToStore={handleAddToStore}
+        productName={product.name}
       />
     </div>
   );

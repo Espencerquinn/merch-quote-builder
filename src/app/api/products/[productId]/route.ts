@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import '@/lib/providers/init';
-import { getProvider, resolveProductId } from '@/lib/providers/registry';
+import { getCachedProductDetail } from '@/lib/cache/product-cache';
 
 export async function GET(
   _request: Request,
@@ -9,9 +8,7 @@ export async function GET(
   const { productId: compoundId } = await params;
 
   try {
-    const { providerId, productId } = resolveProductId(decodeURIComponent(compoundId));
-    const provider = getProvider(providerId);
-    const product = await provider.getProduct(productId);
+    const product = await getCachedProductDetail(decodeURIComponent(compoundId));
     return NextResponse.json(product);
   } catch (error) {
     console.error(`Error fetching product ${compoundId}:`, error);
