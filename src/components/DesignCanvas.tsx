@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react';
 import { Canvas, Rect, IText, FabricImage, FabricObject } from 'fabric';
 import { ProductColor, PrintArea, PrintAreaView } from '@/lib/products';
@@ -22,6 +20,10 @@ export interface DesignCanvasHandle {
   getCanvasState: () => string | null;
   loadCanvasState: (json: string) => void;
   getCanvasThumbnail: () => Promise<string | null>;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
 }
 
 interface DesignCanvasProps {
@@ -37,28 +39,76 @@ interface DesignCanvasProps {
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 600;
 
-function proxyImageUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  // Same-origin URLs don't need proxying
-  if (url.startsWith('/') || url.startsWith('data:')) return url;
-  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
-}
-
 const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function DesignCanvas(
   { selectedColor, printArea, printAreas, activeView, onViewChange, onDesignChange, productImageUrl },
   ref
 ) {
-  const proxiedImageUrl = proxyImageUrl(productImageUrl);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<Canvas | null>(null);
   const printAreaRef = useRef(printArea);
-  const proxiedImageUrlRef = useRef(proxiedImageUrl);
+  const productImageUrlRef = useRef(productImageUrl);
   const [hasSelection, setHasSelection] = useState(false);
+
+  // History tracking for undo/redo
+  const MAX_HISTORY = 50;
+  const historyRef = useRef<string[]>([]);
+  const historyPointerRef = useRef(-1);
+  const isRestoringRef = useRef(false);
+  const pushHistoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pushHistory = useCallback(() => {
+    if (!fabricRef.current || isRestoringRef.current) return;
+
+    // Extract only design elements (exclude boundary)
+    const objects = fabricRef.current.getObjects() as CustomFabricObject[];
+    const designObjects = objects.filter((obj) => obj.customData?.isDesignElement);
+
+    // Serialize only design elements by temporarily removing non-design objects
+    const nonDesign = objects.filter((obj) => !obj.customData?.isDesignElement);
+    nonDesign.forEach((obj) => fabricRef.current!.remove(obj as FabricObject));
+
+    const json = JSON.stringify(fabricRef.current.toJSON());
+
+    // Restore non-design objects
+    nonDesign.forEach((obj) => {
+      fabricRef.current!.add(obj as FabricObject);
+      fabricRef.current!.sendObjectToBack(obj as FabricObject);
+    });
+
+    // If pointer is not at the end, truncate forward history
+    const pointer = historyPointerRef.current;
+    if (pointer < historyRef.current.length - 1) {
+      historyRef.current = historyRef.current.slice(0, pointer + 1);
+    }
+
+    // Don't push duplicate states
+    if (historyRef.current.length > 0 && historyRef.current[historyRef.current.length - 1] === json) {
+      return;
+    }
+
+    historyRef.current.push(json);
+
+    // Enforce max history size
+    if (historyRef.current.length > MAX_HISTORY) {
+      historyRef.current = historyRef.current.slice(historyRef.current.length - MAX_HISTORY);
+    }
+
+    historyPointerRef.current = historyRef.current.length - 1;
+  }, []);
+
+  const debouncedPushHistory = useCallback(() => {
+    if (pushHistoryTimerRef.current) {
+      clearTimeout(pushHistoryTimerRef.current);
+    }
+    pushHistoryTimerRef.current = setTimeout(() => {
+      pushHistory();
+    }, 100);
+  }, [pushHistory]);
 
   // Keep ref in sync so imperative handle always has latest value
   useEffect(() => {
-    proxiedImageUrlRef.current = proxiedImageUrl;
-  }, [proxiedImageUrl]);
+    productImageUrlRef.current = productImageUrl;
+  }, [productImageUrl]);
 
   const syncDesignState = useCallback(() => {
     if (!fabricRef.current) return;
@@ -181,16 +231,16 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
         ctx.fillStyle = '#e5e7eb';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-        // Load product image through proxy (same-origin) for clean canvas export
-        const currentProxiedUrl = proxiedImageUrlRef.current;
-        if (currentProxiedUrl) {
+        // Load product image for canvas export (CDN supports CORS)
+        const currentImageUrl = productImageUrlRef.current;
+        if (currentImageUrl) {
           try {
             const img = new Image();
             img.crossOrigin = 'anonymous';
             await new Promise<void>((resolve, reject) => {
               img.onload = () => resolve();
               img.onerror = () => reject(new Error('Image load failed'));
-              img.src = currentProxiedUrl;
+              img.src = currentImageUrl;
             });
 
             const imgAspect = img.naturalWidth / img.naturalHeight;
@@ -253,7 +303,71 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
         return null;
       }
     },
-  }), [syncDesignState]);
+    undo: () => {
+      if (!fabricRef.current || historyPointerRef.current <= 0) return;
+
+      historyPointerRef.current -= 1;
+      const state = historyRef.current[historyPointerRef.current];
+
+      isRestoringRef.current = true;
+
+      // Remove all design elements first
+      const objects = fabricRef.current.getObjects() as CustomFabricObject[];
+      const designObjects = objects.filter((obj) => obj.customData?.isDesignElement);
+      designObjects.forEach((obj) => fabricRef.current!.remove(obj as FabricObject));
+
+      // Load the saved design state into a temp canvas, then merge objects
+      const tempCanvas = new Canvas(document.createElement('canvas'), {
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+      });
+      tempCanvas.loadFromJSON(state).then(() => {
+        const loadedObjects = tempCanvas.getObjects() as CustomFabricObject[];
+        loadedObjects.forEach((obj) => {
+          tempCanvas.remove(obj as FabricObject);
+          fabricRef.current!.add(obj as FabricObject);
+        });
+        tempCanvas.dispose();
+        fabricRef.current!.renderAll();
+        isRestoringRef.current = false;
+        syncDesignState();
+      });
+    },
+
+    redo: () => {
+      if (!fabricRef.current || historyPointerRef.current >= historyRef.current.length - 1) return;
+
+      historyPointerRef.current += 1;
+      const state = historyRef.current[historyPointerRef.current];
+
+      isRestoringRef.current = true;
+
+      // Remove all design elements first
+      const objects = fabricRef.current.getObjects() as CustomFabricObject[];
+      const designObjects = objects.filter((obj) => obj.customData?.isDesignElement);
+      designObjects.forEach((obj) => fabricRef.current!.remove(obj as FabricObject));
+
+      // Load the saved design state into a temp canvas, then merge objects
+      const tempCanvas = new Canvas(document.createElement('canvas'), {
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+      });
+      tempCanvas.loadFromJSON(state).then(() => {
+        const loadedObjects = tempCanvas.getObjects() as CustomFabricObject[];
+        loadedObjects.forEach((obj) => {
+          tempCanvas.remove(obj as FabricObject);
+          fabricRef.current!.add(obj as FabricObject);
+        });
+        tempCanvas.dispose();
+        fabricRef.current!.renderAll();
+        isRestoringRef.current = false;
+        syncDesignState();
+      });
+    },
+
+    canUndo: () => historyPointerRef.current > 0,
+    canRedo: () => historyPointerRef.current < historyRef.current.length - 1,
+  }), [syncDesignState, pushHistory]);
 
   useEffect(() => {
     printAreaRef.current = printArea;
@@ -315,18 +429,29 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
       borderScaleFactor: 2,
     });
 
+    // Reset history when view/canvas changes
+    historyRef.current = [];
+    historyPointerRef.current = -1;
+
+    // Push initial empty state
+    // (deferred to after boundary is set up, but boundary is excluded from history)
+    setTimeout(() => pushHistory(), 0);
+
     // Event listeners
     canvas.on('selection:created', () => setHasSelection(true));
     canvas.on('selection:cleared', () => setHasSelection(false));
-    canvas.on('object:modified', syncDesignState);
-    canvas.on('object:added', syncDesignState);
-    canvas.on('object:removed', syncDesignState);
+    canvas.on('object:modified', () => { syncDesignState(); debouncedPushHistory(); });
+    canvas.on('object:added', () => { syncDesignState(); debouncedPushHistory(); });
+    canvas.on('object:removed', () => { syncDesignState(); debouncedPushHistory(); });
 
     return () => {
+      if (pushHistoryTimerRef.current) {
+        clearTimeout(pushHistoryTimerRef.current);
+      }
       canvas.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printAreaKey, syncDesignState]);
+  }, [printAreaKey, syncDesignState, pushHistory, debouncedPushHistory]);
 
   const deleteSelected = () => {
     if (!fabricRef.current) return;
@@ -378,9 +503,9 @@ const DesignCanvas = forwardRef<DesignCanvasHandle, DesignCanvasProps>(function 
         <div className="relative" style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
           {/* Background layer — isolated from Fabric.js DOM */}
           <div className="absolute inset-0 z-0 rounded-lg overflow-hidden" style={{ boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-            {proxiedImageUrl ? (
+            {productImageUrl ? (
               <img
-                src={proxiedImageUrl}
+                src={productImageUrl}
                 crossOrigin="anonymous"
                 alt="Product"
                 className="w-full h-full object-contain"

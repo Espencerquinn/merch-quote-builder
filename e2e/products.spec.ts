@@ -6,12 +6,20 @@ test.describe("Product Catalog", () => {
     await expect(page.getByText("Product Catalog")).toBeVisible();
   });
 
-  test("shows product cards or empty state", async ({ page }) => {
+  test("shows real product cards from seed data", async ({ page }) => {
     await page.goto("/products");
-    // Either products are displayed or there's a loading/empty state
-    const pageContent = await page.textContent("body");
-    expect(
-      pageContent?.includes("Product Catalog") || pageContent?.includes("No products")
-    ).toBeTruthy();
+    await expect(page.getByText("Product Catalog")).toBeVisible();
+    // Should show real AS Colour products from seeded data
+    await expect(page.getByText("T-Shirts").first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test("product cards have thumbnails", async ({ page }) => {
+    await page.goto("/products");
+    await expect(page.getByText("Product Catalog")).toBeVisible();
+    // Wait for product images to load
+    const images = page.locator("img[src*='bigcommerce.com']");
+    await expect(images.first()).toBeVisible({ timeout: 10000 });
+    const count = await images.count();
+    expect(count).toBeGreaterThan(0);
   });
 });

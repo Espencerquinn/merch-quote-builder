@@ -1,35 +1,34 @@
-"use client";
-
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
 import { Trash2 } from "lucide-react";
 
 export default function ConfirmDeleteButton({
-  endpoint,
+  onDelete,
   label = "Delete",
   className,
 }: {
-  endpoint: string;
+  onDelete: () => Promise<void>;
   label?: string;
   className?: string;
 }) {
-  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    return () => clearTimeout(timerRef.current);
+  }, []);
 
   const handleDelete = async () => {
     if (!confirming) {
       setConfirming(true);
-      setTimeout(() => setConfirming(false), 3000);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
       return;
     }
 
     setDeleting(true);
     try {
-      const res = await fetch(endpoint, { method: "DELETE" });
-      if (res.ok) {
-        router.refresh();
-      }
+      await onDelete();
     } catch (error) {
       console.error("Failed to delete:", error);
     } finally {

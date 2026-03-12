@@ -2,14 +2,15 @@
 
 import type { ASColourPricelistItem } from '@/types/ascolour';
 
-const API_URL = process.env.ASCOLOUR_API_URL || 'https://api.ascolour.co.nz/v1';
-const SUBSCRIPTION_KEY = process.env.ASCOLOUR_SUBSCRIPTION_KEY || '';
-const AUTH_EMAIL = process.env.ASCOLOUR_EMAIL || '';
-const AUTH_PASSWORD = process.env.ASCOLOUR_PASSWORD || '';
+// Lazy env access — on Workers, process.env isn't populated at module evaluation
+function getApiUrl() { return process.env.ASCOLOUR_API_URL || 'https://api.ascolour.co.nz/v1'; }
+function getSubscriptionKey() { return process.env.ASCOLOUR_SUBSCRIPTION_KEY || ''; }
+function getAuthEmail() { return process.env.ASCOLOUR_EMAIL || ''; }
+function getAuthPassword() { return process.env.ASCOLOUR_PASSWORD || ''; }
 
 function headers() {
   return {
-    'Subscription-Key': SUBSCRIPTION_KEY,
+    'Subscription-Key': getSubscriptionKey(),
     'Content-Type': 'application/json',
   };
 }
@@ -24,10 +25,10 @@ async function authenticate(): Promise<string> {
     return cachedToken.token;
   }
 
-  const res = await fetch(`${API_URL}/api/authentication`, {
+  const res = await fetch(`${getApiUrl()}/api/authentication`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ email: AUTH_EMAIL, password: AUTH_PASSWORD }),
+    body: JSON.stringify({ email: getAuthEmail(), password: getAuthPassword() }),
   });
   if (!res.ok) throw new Error(`AS Colour auth error: ${res.status}`);
   const body = await res.json();
@@ -63,52 +64,60 @@ async function fetchWithAuth(url: string): Promise<Response> {
   return res;
 }
 
-export async function fetchProducts(pageNumber = 1, pageSize = 50) {
+export async function fetchProducts(pageNumber = 1, pageSize = 50, options?: { noCache?: boolean }) {
   const params = new URLSearchParams({
     pageNumber: String(pageNumber),
     pageSize: String(pageSize),
   });
-  const res = await fetch(`${API_URL}/catalog/products/?${params}`, {
+  const res = await fetch(`${getApiUrl()}/catalog/products/?${params}`, {
     headers: headers(),
-    next: { revalidate: 3600 }, // Cache for 1 hour
+    ...(options?.noCache ? { cache: 'no-store' as const } : {}),
   });
   if (!res.ok) throw new Error(`AS Colour API error: ${res.status}`);
   return res.json();
 }
 
-export async function fetchProduct(styleCode: string) {
-  const res = await fetch(`${API_URL}/catalog/products/${styleCode}`, {
+export async function fetchProduct(styleCode: string, options?: { noCache?: boolean; timeoutMs?: number }) {
+  const signal = options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
+  const res = await fetch(`${getApiUrl()}/catalog/products/${styleCode}`, {
     headers: headers(),
-    next: { revalidate: 3600 },
+    signal,
+    ...(options?.noCache ? { cache: 'no-store' as const } : {}),
   });
   if (!res.ok) throw new Error(`AS Colour API error: ${res.status}`);
   return res.json();
 }
 
-export async function fetchProductImages(styleCode: string) {
-  const res = await fetch(`${API_URL}/catalog/products/${styleCode}/images`, {
+export async function fetchProductImages(styleCode: string, options?: { noCache?: boolean; timeoutMs?: number }) {
+  const signal = options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
+  const res = await fetch(`${getApiUrl()}/catalog/products/${styleCode}/images`, {
     headers: headers(),
-    next: { revalidate: 3600 },
+    signal,
+    ...(options?.noCache ? { cache: 'no-store' as const } : {}),
   });
-  if (!res.ok) throw new Error(`AS Colour API error: ${res.status}`);
+  if (!res.ok) throw new Error(`AS Colour API error: ${res.status} for images/${styleCode}`);
   return res.json();
 }
 
-export async function fetchProductVariants(styleCode: string) {
-  const res = await fetch(`${API_URL}/catalog/products/${styleCode}/variants`, {
+export async function fetchProductVariants(styleCode: string, options?: { noCache?: boolean; timeoutMs?: number }) {
+  const signal = options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
+  const res = await fetch(`${getApiUrl()}/catalog/products/${styleCode}/variants`, {
     headers: headers(),
-    next: { revalidate: 3600 },
+    signal,
+    ...(options?.noCache ? { cache: 'no-store' as const } : {}),
   });
-  if (!res.ok) throw new Error(`AS Colour API error: ${res.status}`);
+  if (!res.ok) throw new Error(`AS Colour API error: ${res.status} for variants/${styleCode}`);
   return res.json();
 }
 
-export async function fetchColours(colourFilter?: string) {
+export async function fetchColours(colourFilter?: string, options?: { noCache?: boolean; timeoutMs?: number }) {
+  const signal = options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
   const params = new URLSearchParams();
   if (colourFilter) params.set('ColourFilter', colourFilter);
-  const res = await fetch(`${API_URL}/catalog/colours?${params}`, {
+  const res = await fetch(`${getApiUrl()}/catalog/colours?${params}`, {
     headers: headers(),
-    next: { revalidate: 3600 },
+    signal,
+    ...(options?.noCache ? { cache: 'no-store' as const } : {}),
   });
   if (!res.ok) throw new Error(`AS Colour API error: ${res.status}`);
   return res.json();
@@ -126,7 +135,7 @@ async function fetchAllPricelistItems(): Promise<ASColourPricelistItem[]> {
 
   while (true) {
     const res = await fetchWithAuth(
-      `${API_URL}/catalog/pricelist?pageNumber=${page}&pageSize=${pageSize}`
+      `${getApiUrl()}/catalog/pricelist?pageNumber=${page}&pageSize=${pageSize}`
     );
     const body = await res.json();
     const items: ASColourPricelistItem[] = body.data || [];

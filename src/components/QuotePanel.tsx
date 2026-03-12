@@ -1,5 +1,3 @@
-'use client';
-
 import { QuoteBreakdown } from '@/lib/pricing';
 
 interface QuotePanelProps {

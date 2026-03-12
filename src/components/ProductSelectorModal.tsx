@@ -1,8 +1,7 @@
-'use client';
-
 import { useState, useEffect, useCallback } from 'react';
 import { X, Search, ChevronRight, Loader2, Package } from 'lucide-react';
 import type { ProductSummary } from '@/lib/providers/types';
+import { supabase } from '@/lib/supabase/client';
 
 interface ProductSelectorModalProps {
   isOpen: boolean;
@@ -46,10 +45,22 @@ export default function ProductSelectorModal({
   const fetchAllProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/products');
-      if (!res.ok) throw new Error('Failed to fetch');
-      const data = await res.json();
-      setProducts(data.data || []);
+      const { data, error } = await supabase
+        .from('products')
+        .select('compound_id, name, description, product_type, thumbnail_url, provider_id')
+        .eq('is_active', true)
+        .order('name');
+      if (error) throw error;
+      setProducts(
+        (data || []).map((p) => ({
+          id: p.compound_id,
+          name: p.name,
+          description: p.description || '',
+          productType: p.product_type || '',
+          thumbnailUrl: p.thumbnail_url,
+          provider: p.provider_id,
+        }))
+      );
     } catch (error) {
       console.error('Error fetching products:', error);
     } finally {

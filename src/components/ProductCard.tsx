@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { Package } from "lucide-react";
 
 interface ProductCardProps {
@@ -19,7 +19,7 @@ export default function ProductCard({
 }: ProductCardProps) {
   return (
     <Link
-      href={href}
+      to={href}
       className="group flex flex-col bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 transition-all"
     >
       <div className="w-full aspect-[3/4] bg-gray-900/50 overflow-hidden">

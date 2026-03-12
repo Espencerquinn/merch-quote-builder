@@ -1,5 +1,3 @@
-"use client";
-
 import { ShoppingCart, Store, X } from "lucide-react";
 
 interface PostDesignModalProps {
