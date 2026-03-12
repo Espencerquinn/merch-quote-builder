@@ -3,9 +3,11 @@ export interface MarkupConfig {
   value: number;
 }
 
+const DEFAULT_MARKUP_PERCENT = 10;
+
 const defaultMarkup: MarkupConfig = {
   type: 'percentage',
-  value: parseFloat(process.env.PRICING_MARKUP_PERCENT || '10'),
+  value: DEFAULT_MARKUP_PERCENT,
 };
 
 export function applyMarkup(wholesalePrice: number, config: MarkupConfig = defaultMarkup): number {

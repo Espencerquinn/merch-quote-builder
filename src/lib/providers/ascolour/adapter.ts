@@ -2,6 +2,7 @@ import { fetchProducts, fetchProduct, fetchProductImages, fetchProductVariants, 
 import type { ASColourProduct, ASColourProductImage, ASColourVariant } from '@/types/ascolour';
 import type { ProductProvider, ProductSummary, ProductDetail, NormalizedColour, NormalizedImage, VariantPricing, ProductPricing } from '../types';
 import { applyMarkup } from '@/lib/markup';
+import { sortSizes, DEFAULT_COLOUR_HEX } from '@/lib/format';
 
 // Generic view names that aren't actual colours
 const GENERIC_VIEWS = new Set(['BACK', 'FRONT', 'MAIN', 'SIDE', 'TURN']);
@@ -77,7 +78,7 @@ function parseProductImages(images: ASColourProductImage[]): {
     colours.push({
       id: colourId,
       name: colourName,
-      hex: '#888888', // AS Colour API doesn't give us hex in images
+      hex: DEFAULT_COLOUR_HEX, // AS Colour API doesn't give us hex in images
       thumbnailUrl: views.front?.urlTiny || null,
     });
 
@@ -120,26 +121,56 @@ function parseProductImages(images: ASColourProductImage[]): {
   };
 }
 
+async function fetchAllRawProducts(options?: { noCache?: boolean }): Promise<ASColourProduct[]> {
+  const allRaw: ASColourProduct[] = [];
+  let pageNum = 1;
+  const batchSize = 250;
+
+  while (true) {
+    const result = await fetchProducts(pageNum, batchSize, options);
+    const products: ASColourProduct[] = result.data || [];
+    allRaw.push(...products);
+    if (products.length < batchSize) break;
+    pageNum++;
+  }
+
+  return allRaw;
+}
+
 export const asColourProvider: ProductProvider = {
   id: 'ascolour',
+
+  async listProductsFast(): Promise<ProductSummary[]> {
+    const allRaw = await fetchAllRawProducts({ noCache: true });
+
+    return allRaw.map((product) => ({
+      id: makeCompoundId(product.styleCode),
+      name: product.styleName,
+      description: product.shortDescription,
+      productType: product.productType,
+      thumbnailUrl: null, // Skip per-product image fetching
+      provider: 'ascolour',
+      metadata: {
+        styleCode: product.styleCode,
+        fabricWeight: product.fabricWeight,
+        composition: product.composition,
+        fit: product.fit,
+        gender: product.gender,
+        coreRange: product.coreRange,
+        printingTechniques: product.printingTechniques,
+        productWeight: product.productWeight,
+        sizeGuideURL: product.sizeGuideURL,
+        websiteURL: product.websiteURL,
+      },
+    }));
+  },
 
   async listProducts(): Promise<ProductSummary[]> {
     if (cachedAllProducts && Date.now() - cachedAllProducts.timestamp < CACHE_TTL) {
       return cachedAllProducts.data;
     }
 
-    // Fetch all pages from AS Colour
-    const allRaw: ASColourProduct[] = [];
-    let pageNum = 1;
-    const batchSize = 250;
-
-    while (true) {
-      const result = await fetchProducts(pageNum, batchSize);
-      const products: ASColourProduct[] = result.data || [];
-      allRaw.push(...products);
-      if (products.length < batchSize) break;
-      pageNum++;
-    }
+    const allRaw = await fetchAllRawProducts();
 
     // Enrich with thumbnails in batches of 50
     const summaries: ProductSummary[] = [];
@@ -164,18 +195,12 @@ export const asColourProvider: ProductProvider = {
     const { colours, normalizedImages, availableViews } = parseProductImages(imagesData);
 
     // Derive sizes from non-discontinued variants (deduplicated, ordered)
-    const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
     const sizeSet = new Set<string>();
     const activeVariants = variantsData.filter(v => !v.discontinued);
     for (const v of activeVariants) {
       sizeSet.add(v.sizeCode);
     }
-    const sizes = Array.from(sizeSet)
-      .sort((a, b) => {
-        const ai = sizeOrder.indexOf(a);
-        const bi = sizeOrder.indexOf(b);
-        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-      })
+    const sizes = sortSizes(Array.from(sizeSet))
       .map(s => ({ id: s.toLowerCase(), name: s }));
 
     // Build pricing from variants + pricelist

@@ -9,18 +9,18 @@ test.describe("Homepage", () => {
 
   test("shows navigation links", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Products" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Products", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Sign In" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Get Started" })).toBeVisible();
   });
 
   test("shows How It Works section", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText("How It Works")).toBeVisible();
-    await expect(page.getByText("Choose a Product")).toBeVisible();
-    await expect(page.getByText("Design It")).toBeVisible();
-    await expect(page.getByText("Launch Your Store")).toBeVisible();
-    await expect(page.getByText("Start Selling")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "How It Works" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Choose a Product/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Design It/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Launch Your Store/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Start Selling/ })).toBeVisible();
   });
 
   test("shows features section", async ({ page }) => {

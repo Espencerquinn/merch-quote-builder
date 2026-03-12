@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { X, Palette, Clock, MessageSquare, CheckCircle } from 'lucide-react';
 

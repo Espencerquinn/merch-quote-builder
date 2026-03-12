@@ -22,6 +22,7 @@ export interface ProductSummary {
   productType: string;
   thumbnailUrl: string | null;
   provider: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface VariantPricing {
@@ -51,5 +52,6 @@ export interface ProductDetail extends ProductSummary {
 export interface ProductProvider {
   id: string; // e.g. "ascolour", "static"
   listProducts(): Promise<ProductSummary[]>;
+  listProductsFast?(): Promise<ProductSummary[]>;
   getProduct(productId: string): Promise<ProductDetail>;
 }

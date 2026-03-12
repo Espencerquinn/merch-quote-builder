@@ -1,5 +1,3 @@
-'use client';
-
 import { Product, ProductColor } from '@/lib/products';
 
 interface ProductSelectorProps {
