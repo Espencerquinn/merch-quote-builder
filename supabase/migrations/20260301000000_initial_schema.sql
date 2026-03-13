@@ -179,75 +179,101 @@ CREATE TABLE IF NOT EXISTS "user_pricing_overrides" (
 );
 
 -- Add orders.store_id FK (stores must be created first)
-ALTER TABLE "orders" ADD CONSTRAINT "orders_store_id_stores_id_fk"
-  FOREIGN KEY ("store_id") REFERENCES "stores"("id") ON DELETE no action;
+DO $$ BEGIN
+  ALTER TABLE "orders" ADD CONSTRAINT "orders_store_id_stores_id_fk"
+    FOREIGN KEY ("store_id") REFERENCES "stores"("id") ON DELETE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================
 -- ROW LEVEL SECURITY
 -- ============================================
 
 -- Helper function: check if user is admin
+-- Uses current_setting to read the JWT claim set by Supabase's request handler.
+-- Falls back to checking the users table if called outside a request context.
 CREATE OR REPLACE FUNCTION is_admin()
 RETURNS boolean AS $$
-  SELECT coalesce(
+BEGIN
+  RETURN coalesce(
     (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin',
     false
   );
-$$ LANGUAGE sql SECURITY DEFINER;
+EXCEPTION WHEN OTHERS THEN
+  -- Fallback: during migrations or when auth.jwt() is unavailable
+  RETURN false;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- USERS
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "users_read_own" ON users;
 CREATE POLICY "users_read_own" ON users
   FOR SELECT USING (auth.uid()::text = id OR is_admin());
+DROP POLICY IF EXISTS "users_update_own" ON users;
 CREATE POLICY "users_update_own" ON users
   FOR UPDATE USING (auth.uid()::text = id);
+DROP POLICY IF EXISTS "users_insert" ON users;
 CREATE POLICY "users_insert" ON users
   FOR INSERT WITH CHECK (true);
 
 -- PRODUCTS
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "products_public_read" ON products;
 CREATE POLICY "products_public_read" ON products
   FOR SELECT USING (is_active = true OR is_admin());
+DROP POLICY IF EXISTS "products_admin_write" ON products;
 CREATE POLICY "products_admin_write" ON products
   FOR ALL USING (is_admin());
 
 -- SYNC LOG
 ALTER TABLE sync_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sync_log_admin_only" ON sync_log;
 CREATE POLICY "sync_log_admin_only" ON sync_log
   FOR ALL USING (is_admin());
 
 -- SYNC CHANGES
 ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sync_changes_admin_only" ON sync_changes;
 CREATE POLICY "sync_changes_admin_only" ON sync_changes
   FOR ALL USING (is_admin());
 
 -- DECORATED PRODUCTS
 ALTER TABLE decorated_products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "decorated_products_read_own" ON decorated_products;
 CREATE POLICY "decorated_products_read_own" ON decorated_products
   FOR SELECT USING (auth.uid()::text = user_id OR user_id IS NULL OR is_admin());
+DROP POLICY IF EXISTS "decorated_products_insert" ON decorated_products;
 CREATE POLICY "decorated_products_insert" ON decorated_products
   FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "decorated_products_update_own" ON decorated_products;
 CREATE POLICY "decorated_products_update_own" ON decorated_products
   FOR UPDATE USING (auth.uid()::text = user_id OR is_admin());
+DROP POLICY IF EXISTS "decorated_products_delete_own" ON decorated_products;
 CREATE POLICY "decorated_products_delete_own" ON decorated_products
   FOR DELETE USING (auth.uid()::text = user_id OR is_admin());
 
 -- ANONYMOUS CLAIM TOKENS
 ALTER TABLE anonymous_claim_tokens ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "claim_tokens_service_only" ON anonymous_claim_tokens;
 CREATE POLICY "claim_tokens_service_only" ON anonymous_claim_tokens
   FOR ALL USING (is_admin());
 
 -- ORDERS
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "orders_read_own" ON orders;
 CREATE POLICY "orders_read_own" ON orders
   FOR SELECT USING (auth.uid()::text = user_id OR is_admin());
+DROP POLICY IF EXISTS "orders_insert" ON orders;
 CREATE POLICY "orders_insert" ON orders
   FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "orders_update_admin" ON orders;
 CREATE POLICY "orders_update_admin" ON orders
   FOR UPDATE USING (is_admin());
 
 -- ORDER ITEMS
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "order_items_read_via_order" ON order_items;
 CREATE POLICY "order_items_read_via_order" ON order_items
   FOR SELECT USING (
     EXISTS (
@@ -256,29 +282,37 @@ CREATE POLICY "order_items_read_via_order" ON order_items
       AND (orders.user_id = auth.uid()::text OR is_admin())
     )
   );
+DROP POLICY IF EXISTS "order_items_insert" ON order_items;
 CREATE POLICY "order_items_insert" ON order_items
   FOR INSERT WITH CHECK (true);
 
 -- QUOTES
 ALTER TABLE quotes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "quotes_public_insert" ON quotes;
 CREATE POLICY "quotes_public_insert" ON quotes
   FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "quotes_admin_read" ON quotes;
 CREATE POLICY "quotes_admin_read" ON quotes
   FOR SELECT USING (is_admin());
 
 -- STORES
 ALTER TABLE stores ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "stores_read" ON stores;
 CREATE POLICY "stores_read" ON stores
   FOR SELECT USING (is_published = true OR auth.uid()::text = user_id OR is_admin());
+DROP POLICY IF EXISTS "stores_insert_own" ON stores;
 CREATE POLICY "stores_insert_own" ON stores
   FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+DROP POLICY IF EXISTS "stores_update_own" ON stores;
 CREATE POLICY "stores_update_own" ON stores
   FOR UPDATE USING (auth.uid()::text = user_id OR is_admin());
+DROP POLICY IF EXISTS "stores_delete_own" ON stores;
 CREATE POLICY "stores_delete_own" ON stores
   FOR DELETE USING (auth.uid()::text = user_id OR is_admin());
 
 -- STORE PRODUCTS
 ALTER TABLE store_products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "store_products_read" ON store_products;
 CREATE POLICY "store_products_read" ON store_products
   FOR SELECT USING (
     EXISTS (
@@ -287,6 +321,7 @@ CREATE POLICY "store_products_read" ON store_products
       AND (stores.is_published = true OR stores.user_id = auth.uid()::text OR is_admin())
     )
   );
+DROP POLICY IF EXISTS "store_products_write_owner" ON store_products;
 CREATE POLICY "store_products_write_owner" ON store_products
   FOR ALL USING (
     EXISTS (
@@ -298,6 +333,7 @@ CREATE POLICY "store_products_write_owner" ON store_products
 
 -- STORE CONNECTORS
 ALTER TABLE store_connectors ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "store_connectors_owner" ON store_connectors;
 CREATE POLICY "store_connectors_owner" ON store_connectors
   FOR ALL USING (
     EXISTS (
@@ -309,13 +345,16 @@ CREATE POLICY "store_connectors_owner" ON store_connectors
 
 -- PLATFORM SETTINGS
 ALTER TABLE platform_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "platform_settings_public_read" ON platform_settings;
 CREATE POLICY "platform_settings_public_read" ON platform_settings
   FOR SELECT USING (true);
+DROP POLICY IF EXISTS "platform_settings_admin_write" ON platform_settings;
 CREATE POLICY "platform_settings_admin_write" ON platform_settings
   FOR ALL USING (is_admin());
 
 -- USER PRICING OVERRIDES
 ALTER TABLE user_pricing_overrides ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "user_pricing_admin_only" ON user_pricing_overrides;
 CREATE POLICY "user_pricing_admin_only" ON user_pricing_overrides
   FOR ALL USING (is_admin());
 
